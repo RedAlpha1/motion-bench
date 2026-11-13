@@ -1,0 +1,26 @@
+# RN / Expo
+react-native/node_modules/
+react-native/.expo/
+react-native/android/
+react-native/ios/
+# Android
+android-compose/.gradle/
+android-compose/build/
+android-compose/app/build/
+android-compose/local.properties
+android-compose/.idea/
+*.iml
+# iOS
+ios-swiftui/*.xcodeproj/
+ios-swiftui/build/
+xcuserdata/
+DerivedData/
+# Flutter
+flutter/.dart_tool/
+flutter/build/
+flutter/.flutter-plugins*
+flutter/pubspec.lock
+# Traces
+traces/*
+!traces/.gitkeep
+.DS_Store

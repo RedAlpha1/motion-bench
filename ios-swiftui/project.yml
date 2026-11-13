@@ -1,0 +1,20 @@
+# Generate the Xcode project with XcodeGen:  brew install xcodegen && xcodegen
+name: MotionBench
+options:
+  bundleIdPrefix: dev.motionbench
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  MotionBench:
+    type: application
+    platform: iOS
+    sources: [MotionBench]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.motionbench.swiftui
+        SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_CFBundleDisplayName: Motion Bench SwiftUI
+        TARGETED_DEVICE_FAMILY: "1"
