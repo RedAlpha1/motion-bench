@@ -1,0 +1,47 @@
+test "play and pause swap the icon and freeze the clock"
+  expect tree has "icon-pause"
+  tap "play"
+  expect tree has "icon-play"
+  expect text "elapsed" == "0:13"
+  clock +1000
+  expect text "elapsed" == "0:13"
+  tap "play"
+  expect tree has "icon-pause"
+
+test "the 10 Hz clock advances progress"
+  expect text "elapsed" == "0:13"
+  clock +1000
+  expect text "elapsed" == "0:18"
+
+test "next and previous change the track"
+  tap "next"
+  expect text "title" == "Paper Satellites"
+  tap "prev"
+  tap "prev"
+  expect text "title" == "Saltwater Static"
+
+test "4x load is a switch"
+  tap "load"
+  expect state load == 4
+  tap "load"
+  expect state load == 1
+
+test "a card opens into the sheet and closes"
+  tap "tab-explore"
+  tap "open-0"
+  expect tree has "sheet"
+  expect state open == 0
+  clock settle
+  tap "close"
+  expect tree missing "sheet"
+  expect state open == -1
+
+test "auto mode cycles cards on a fixed schedule"
+  tap "tab-explore"
+  tap "auto"
+  clock +900
+  expect state open == 0
+  clock +1600
+  expect state open == -1
+  clock +900
+  expect state open == 1

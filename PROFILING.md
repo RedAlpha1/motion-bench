@@ -9,6 +9,7 @@ The aim is to compare the **same motion** across frameworks, so the method matte
    - Compose: `./gradlew installRelease` (it is signed with the debug key so it installs without setup)
    - SwiftUI: in Xcode press Product → Profile (⌘I), which builds Release
    - Flutter: `flutter run --profile`. Profile mode is AOT with tracing, as close to release as you can trace.
+   - Exact: `bun exact.mjs ios --device --phone <udid> --release` or `bun exact.mjs android --release` (see `exact/README.md`)
 2. **Use the same device every time.** Run each Android framework on one mid-range phone, not a flagship. Weak GPUs are where the frameworks differ. Write down the device model, OS version and refresh rate.
 3. **Fix the refresh rate.** Lock the display to 60 Hz (or 120 Hz) in developer options for the whole session.
 4. Charge the battery above 50 %. Turn off battery saver. Let the phone cool between runs.
@@ -60,6 +61,7 @@ Package names:
 | React Native | `dev.motionbench.rn/.MainActivity` |
 | Compose | `dev.motionbench.compose/.MainActivity` |
 | Flutter | `dev.motionbench.motion_bench/.MainActivity` (after `flutter create --org dev.motionbench`) |
+| Exact | `dev.motionbench.exact` (from `exact new --bundle-id`; check the launch activity with `adb shell cmd package resolve-activity --brief dev.motionbench.exact`) |
 
 ### Other numbers to collect
 
@@ -81,6 +83,7 @@ ls -lh <path-to-release.apk>
 
 - **Compose:** `Recomposer:recompose`, `Compose:measure` and `Compose:draw` slices. JankStats also logs janky frames to logcat (`adb logcat -s MotionBench`). On Explore, look for recomposition every frame. The frame size is read only during layout, so if you see a recomposition on every frame, that is a finding.
 - **React Native:** separate the JS thread (`mqt_v_js` / `mqt_js`) from the UI thread. Reanimated animations should run with *no* JS activity. The 10 Hz progress timer is deliberately on JS, so you should see small spikes every 100 ms. Large JS slices during the Explore expand mean a worklet is not on the UI thread.
+- **Exact:** the Rust runner commits state; on Apple, keyframe loops are handed to Core Animation, so P1/P2 should show almost no app-thread work per frame. If they don't, that's a finding. Exact's own `agent … perf` and dev-build traces (`exact/README.md`) attribute work to Contract lines.
 - **Flutter:** `1.ui` (build/layout) and `1.raster` (GPU) threads. For more detail use `flutter run --profile` and DevTools → Performance. Raster-thread spikes on Explore usually come from `ClipRRect` + `BackdropFilter`.
 
 ## iOS (SwiftUI, React Native, Flutter)
@@ -106,19 +109,19 @@ Copy this into `RESULTS.md` once per device.
 ```
 Device: ________  OS: ____  Refresh: __ Hz  Date: ____
 
-| Scenario | Metric            | RN | Compose | SwiftUI | Flutter |
-|----------|-------------------|----|---------|---------|---------|
-| P1       | jank % / hitch ms/s |    |         |         |         |
-| P2       | jank % / hitch ms/s |    |         |         |         |
-| P2       | CPU % (avg)       |    |         |         |         |
-| P2       | Memory PSS (MB)   |    |         |         |         |
-| P3       | worst frame (ms)  |    |         |         |         |
-| E1       | jank % / hitch ms/s |    |         |         |         |
-| E1       | worst frame (ms)  |    |         |         |         |
-| E2       | interruption clean? (y/n) |  |      |         |         |
-| S        | cold start (ms)   |    |         |         |         |
-| –        | release size (MB) |    |         |         |         |
-| –        | lines of code (2 screens) |  |    |         |         |
+| Scenario | Metric            | RN | Compose | SwiftUI | Flutter | Exact |
+|----------|-------------------|----|---------|---------|---------|-------|
+| P1       | jank % / hitch ms/s |    |         |         |         |       |
+| P2       | jank % / hitch ms/s |    |         |         |         |       |
+| P2       | CPU % (avg)       |    |         |         |         |       |
+| P2       | Memory PSS (MB)   |    |         |         |         |       |
+| P3       | worst frame (ms)  |    |         |         |         |       |
+| E1       | jank % / hitch ms/s |    |         |         |         |       |
+| E1       | worst frame (ms)  |    |         |         |         |       |
+| E2       | interruption clean? (y/n) |  |      |         |         |       |
+| S        | cold start (ms)   |    |         |         |         |       |
+| –        | release size (MB) |    |         |         |         |       |
+| –        | lines of code (2 screens) |  |    |         |         |       |
 ```
 
 Lines of code are worth recording, because developer cost is part of the answer:
@@ -128,4 +131,5 @@ find react-native/src react-native/App.tsx -name '*.ts*' | xargs wc -l | tail -1
 find android-compose/app/src -name '*.kt' | xargs wc -l | tail -1
 find ios-swiftui/MotionBench -name '*.swift' | xargs wc -l | tail -1
 find flutter/lib -name '*.dart' | xargs wc -l | tail -1
+wc -l exact/app.contract
 ```

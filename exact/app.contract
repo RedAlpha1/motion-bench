@@ -1,0 +1,492 @@
+// motion-bench — Exact implementation of the Player and Explore screens.
+// Every number comes from ../SPEC.md. Where Exact cannot express the spec,
+// the deviation is noted beside the node and listed in README.md.
+//
+// Motion is idiomatic Contract: CSS @keyframes and transitions (Core Animation
+// plays them on Apple), -exact-spring() for springs, -exact-layout-transition
+// for the shared-element frame, and root tasks for the 10 Hz progress clock.
+// Colours are literal hex on purpose: the benchmark pins exact colours, so the
+// "no tells" lint warnings for hex are expected.
+
+// ---------- data ----------
+
+shape Track
+  title: string
+  artist: string
+  mono: string
+  color: string
+  orbA: string
+  orbB: string
+  len: number
+
+shape Trek
+  name: string
+  alt: string
+  days: string
+  diff: string
+  season: string
+  blurb: string
+  sky1: string
+  sky2: string
+  sun: string
+  m1: string
+  m2: string
+  m3: string
+  ink: string
+  accent: string
+  night: bool
+  prof: number[]
+  lo: number
+  hi: number
+  col: number
+  dy: number
+  h: number
+
+shape Stat
+  k: string
+  v: string
+
+fn track0(): Track = Track(title="Neon Monsoon", artist="Kavya & The Static", mono="NM", color="#C6F432", orbA="#5B4BFF", orbB="#C6F432", len=222)
+fn track1(): Track = Track(title="Paper Satellites", artist="Low Orbit Club", mono="PS", color="#8B7CFF", orbA="#FF7A59", orbB="#8B7CFF", len=198)
+fn track2(): Track = Track(title="Saltwater Static", artist="Mira Okafor", mono="SS", color="#FF7A59", orbA="#4FD1C5", orbB="#FF7A59", len=245)
+fn trackAt(i: number): Track = i == 0 ? track0() : (i == 1 ? track1() : track2())
+
+fn lyrics(): string[] = ["City lights are melting in the rain", "Every signal turning into gold", "We ride the hum of the last train", "Holding on to stories never told", "Neon rivers running through the night", "Your laugh is louder than the thunder", "Count the seconds, hold the light", "Let the monsoon pull us under"]
+
+fn barH(): number[] = [18, 30, 22, 40, 34, 44, 26, 38, 20, 42, 30, 36, 24, 44, 32, 28, 40, 22, 36, 44, 26, 34, 18, 40, 30, 42, 24, 38, 20, 32, 28, 16]
+fn bars(load: number): number[] = load == 4 ? barH().concat(barH()).concat(barH()).concat(barH()) : barH()
+fn grooves(load: number): number[] = range(24 * load).map(i => 40 + 92 * i / (24 * load - 1))
+
+fn trek0(): Trek = Trek(name="Buran Ghati", alt="4,575 m", days="8 days", diff="Hard", season="May–Jun", blurb="Kinnaur, Himachal. Meadows to a high snow pass, then a long snow-slope descent into the Pabbar valley.", sky1="#1B1F3B", sky2="#E07A5F", sun="#FFD6A5", m1="#5A3D5C", m2="#3A2740", m3="#17111D", ink="#FFFFFF", accent="#FF9F80", night=true, prof=[2500, 2800, 3100, 3300, 3500, 3700, 4575, 3900, 3200, 2600, 2200], lo=2200, hi=4575, col=0, dy=0, h=250)
+fn trek1(): Trek = Trek(name="Kedarkantha", alt="3,810 m", days="6 days", diff="Easy", season="Dec–Apr", blurb="Uttarakhand. A classic winter summit climb through pine forest and snow-covered clearings.", sky1="#9EC5EA", sky2="#EAF2FA", sun="#FFFFFF", m1="#E6EEF6", m2="#7E96B2", m3="#22334A", ink="#0B0B0F", accent="#7FB5FF", night=false, prof=[1900, 2400, 2900, 3200, 3400, 3810, 3400, 2900, 2400, 1900], lo=1900, hi=3810, col=1, dy=0, h=200)
+fn trek2(): Trek = Trek(name="Hampta Pass", alt="4,270 m", days="5 days", diff="Moderate", season="Jun–Sep", blurb="Kullu to Lahaul. Green valleys on one side of the pass, stark high-desert on the other.", sky1="#F6C177", sky2="#F28C6B", sun="#FFF1C9", m1="#9A5B67", m2="#5E3448", m3="#22162A", ink="#0B0B0F", accent="#F6C177", night=false, prof=[2900, 3200, 3500, 3700, 4270, 3800, 3600, 3900, 3300], lo=2900, hi=4270, col=0, dy=262, h=200)
+fn trek3(): Trek = Trek(name="Valley of Flowers", alt="3,658 m", days="6 days", diff="Easy", season="Jul–Sep", blurb="Chamoli, Uttarakhand. Alpine meadows that burst into bloom during the monsoon months.", sky1="#BFE3CB", sky2="#F4F1DE", sun="#FFF7D6", m1="#8DB580", m2="#4E7A45", m3="#1F3A26", ink="#0B0B0F", accent="#9BD88A", night=false, prof=[1800, 2200, 3000, 3300, 3658, 3400, 3000, 2600, 2000], lo=1800, hi=3658, col=1, dy=212, h=250)
+fn treks(): Trek[] = [trek0(), trek1(), trek2(), trek3()]
+fn trekAt(i: number): Trek = i == 0 ? trek0() : (i == 1 ? trek1() : (i == 2 ? trek2() : trek3()))
+fn stats(t: Trek): Stat[] = [Stat(k="ALTITUDE", v=t.alt), Stat(k="DURATION", v=t.days), Stat(k="GRADE", v=t.diff), Stat(k="SEASON", v=t.season)]
+
+// ---------- helpers ----------
+
+fn pad2(n: number): string = n < 10 ? `0${n}` : `${n}`
+fn mmss(s: number): string = `${floor(s / 60)}:${pad2(floor(s % 60))}`
+fn dist(a: number, b: number): number = max(a - b, b - a)
+fn lyricIndex(p: number): number = min(7, floor(p * 8))
+
+fn eqDur(i: number): number = 0.32 + ((i * 37) % 23) / 40
+fn eqDelay(i: number): number = eqDur(i) * ((i * 53) % 17) / 20
+fn eqAnim(i: number, ps: string): string = `eq ${eqDur(i).toFixed(3)}s ease-in-out -${eqDelay(i).toFixed(3)}s infinite alternate ${ps}`
+fn eqColor(i: number, accent: string): string = i % 3 == 0 ? accent : (i % 3 == 1 ? "#F4F4F68C" : "#F4F4F640")
+
+fn yOf(v: number, t: Trek): number = 78 - (v - t.lo) / (t.hi - t.lo) * 72
+fn linePts(t: Trek): string = t.prof.map((v, i) => `${(i * 300 / (t.prof.length - 1)).toFixed(1)},${yOf(v, t).toFixed(1)}`).join(" ")
+fn areaPts(t: Trek): string = `${linePts(t)} 300,84 0,84`
+fn cardLeft(col: number): string = col == 0 ? "24px" : "calc(36px + (100% - 60px) / 2)"
+
+// ---------- motion ----------
+
+keyframes spin
+  from rotate=0
+  to rotate=360
+
+keyframes beat
+  from scale=0.96 opacity=0.45
+  to scale=1.06 opacity=0.85
+
+keyframes driftA
+  from translate="0px 0px"
+  50% translate="60px 40px"
+  to translate="-30px 90px"
+
+keyframes driftB
+  from translate="0px 0px"
+  50% translate="-70px -30px"
+  to translate="20px -80px"
+
+keyframes eq
+  from scale="1 0.12"
+  to scale="1 1"
+
+keyframes iconIn
+  from opacity=0 scale=0.4 rotate=-90
+  to opacity=1 scale=1 rotate=0
+
+// Two copies of the same rule: switching names restarts the animation, so a
+// second tap replays the pop.
+keyframes popA
+  0% scale=1
+  40% scale=1.45
+  100% scale=1
+
+keyframes popB
+  0% scale=1
+  40% scale=1.45
+  100% scale=1
+
+keyframes swap
+  from opacity=0 translate="0px 14px"
+  to opacity=1 translate="0px 0px"
+
+keyframes twinkle
+  from opacity=0.2
+  to opacity=1
+
+keyframes sheetUp
+  from translate="0px 480px"
+  to translate="0px 0px"
+
+keyframes rise
+  from opacity=0 translate="0px 22px"
+  to opacity=1 translate="0px 0px"
+
+keyframes popIn
+  from opacity=0 scale=0.6
+  to opacity=1 scale=1
+
+keyframes draw
+  from stroke-dashoffset=1
+  to stroke-dashoffset=0
+
+keyframes shimmer
+  from translate="-100px 0px"
+  to translate="420px 0px"
+
+// ---------- root: bench bar, state, timers ----------
+
+component App
+  state screen = "player"
+  state load = 1
+  state auto = false
+  state playing = true
+  state progress = 0.06
+  state track = 0
+  state liked = false
+  state likeN = 0
+  state open = -1
+  state last = -1
+  state chip = 0
+  state autoNext = 0
+
+  // 10 Hz progress clock, as in every other implementation (SPEC: Progress).
+  task tick when playing and screen == "player"
+    every(100, step)
+  // Auto: closed 900 ms -> open a card -> 1600 ms -> close -> next card.
+  task autoOpen when auto and screen == "explore" and open < 0
+    after(900, autoShow)
+  task autoClose when auto and open >= 0 key=open
+    after(1600, autoHide)
+
+  action show(name: string)
+    screen = name
+    open = -1
+  action toggleLoad
+    load = load == 1 ? 4 : 1
+  action toggleAuto
+    auto = not auto
+    open = -1
+  action step
+    if progress + 0.0025 >= 1
+      track = (track + 1) % 3
+      progress = 0
+    else
+      progress = progress + 0.0025
+  action togglePlay
+    playing = not playing
+  action next
+    track = (track + 1) % 3
+    progress = 0
+  action prev
+    track = (track + 2) % 3
+    progress = 0
+  action toggleLike
+    liked = not liked
+    likeN = likeN + 1
+  action seek(e: PointerEvent)
+    progress = max(0, min(0.999, e.offsetX / frame("seek").width))
+  action openCard(i: number)
+    open = i
+    last = i
+  action closeCard
+    open = -1
+  action pickChip(i: number)
+    chip = i
+  action autoShow
+    open = autoNext
+    last = autoNext
+    autoNext = (autoNext + 1) % 4
+  action autoHide
+    open = -1
+
+  view
+    main testId="app" width="100%" height="100%" display="flex" flex-direction="column" box-sizing="border-box"
+      padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
+      background-color="#0B0B0F" color="#F4F4F6" font-family="system-ui"
+      row gap=6 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 align-items="center" flex-shrink=0
+        Pill(label="Player", on=(screen == "player"), press=show("player"), tid="tab-player")
+        Pill(label="Explore", on=(screen == "explore"), press=show("explore"), tid="tab-explore")
+        box flex=1
+        Pill(label=`Load ${load}×`, on=(load == 4), press=toggleLoad, tid="load")
+        Pill(label="Auto", on=auto, press=toggleAuto, tid="auto")
+      box height=1 flex-shrink=0 background-color="#1F1F29"
+      column flex=1 min-height=0 position="relative" overflow="hidden"
+        if screen == "player"
+          Player(playing=playing, progress=progress, track=track, liked=liked, likeN=likeN, load=load, togglePlay=togglePlay, next=next, prev=prev, toggleLike=toggleLike, seek=seek)
+        else
+          Explore(open=open, last=last, chip=chip, openCard=openCard, closeCard=closeCard, pickChip=pickChip)
+
+component Pill
+  props
+    label: string
+    on: bool
+    press: action
+    tid: string
+  view
+    button press=press testId=tid aria-pressed=on height=32 padding-left=12 padding-right=12 border-radius=16
+      border-style="solid" border-width=1 border-color=(on ? "#F4F4F6" : "#1F1F29")
+      background-color=(on ? "#F4F4F6" : "#0B0B0F") color=(on ? "#0B0B0F" : "#C9C9D3")
+      text label font-size=12 font-weight=600
+
+// ---------- 02 · Player ----------
+
+component Player
+  props
+    playing: bool
+    progress: number
+    track: number
+    liked: bool
+    likeN: number
+    load: number
+    togglePlay: action
+    next: action
+    prev: action
+    toggleLike: action
+    seek: action
+  view
+    column testId="player" flex=1 min-height=0 position="relative" overflow="hidden"
+      Orbs(track=track, ps=(playing ? "running" : "paused"))
+      column flex=1 min-height=0 position="relative" gap=16 padding-left=24 padding-right=24 padding-top=20 padding-bottom=16
+        Disc(track=track, playing=playing, load=load)
+        row align-items="center" gap=12 margin-top=6
+          for k in [track] key=k
+            column flex=1 min-width=0 gap=2 animation="swap 550ms cubic-bezier(0.22, 1, 0.36, 1) both"
+              text trackAt(k).title testId="title" font-size=26 font-weight=700 white-space="nowrap"
+              text trackAt(k).artist font-size=14 color="#A3A3AF"
+          button press=toggleLike testId="like" aria-label=(liked ? "Remove from liked songs" : "Add to liked songs")
+            width=48 height=48 border-radius=24 border-width=0 background-color="#FFFFFF0F"
+            display="flex" align-items="center" justify-content="center"
+            image (liked ? "symbol:heart-fill" : "symbol:heart") width=22 height=22 color=(liked ? "#FF5C7A" : "#C9C9D3")
+              animation=(likeN == 0 ? "none" : (likeN % 2 == 1 ? "popA 450ms cubic-bezier(0.34, 1.56, 0.64, 1)" : "popB 450ms cubic-bezier(0.34, 1.56, 0.64, 1)"))
+        row testId="eq" height=44 flex-shrink=0 align-items="flex-end" justify-content="space-between" aria-hidden=true
+          for h, i in bars(load) key=i
+            box width=(load == 4 ? 2 : 5) height=h border-radius=3 background-color=eqColor(i, trackAt(track).color)
+              transform-origin="50% 100%" animation=eqAnim(i, (playing ? "running" : "paused"))
+        column gap=6 flex-shrink=0
+          box id="seek" testId="seek" height=22 position="relative" pointerdown=seek touch-action="none"
+            box position="absolute" left=0 right=0 top=9 height=5 border-radius=5 background-color="#FFFFFF1F"
+            box position="absolute" left=0 top=9 height=5 border-radius=5 width=`${progress * 100}%`
+              background-color=trackAt(track).color transition="background-color 800ms"
+            box position="absolute" top=3 width=16 height=16 border-radius=8 background-color="#F4F4F6"
+              left=`calc(${progress * 100}% - 8px)`
+          row justify-content="space-between"
+            text mmss(progress * trackAt(track).len) testId="elapsed" font-size=12 color="#9A9AA6" font-variant-numeric="tabular-nums"
+            text mmss(trackAt(track).len) font-size=12 color="#9A9AA6" font-variant-numeric="tabular-nums"
+        row justify-content="center" align-items="center" gap=36 flex-shrink=0
+          button press=prev testId="prev" aria-label="Previous track" width=56 height=56 border-width=0 background-color="transparent"
+            svg width=30 height=30 viewBox="0 0 24 24"
+              path d="M6 5h2v14H6zM20 5v14L9.5 12z" fill="#F4F4F6"
+          // SPEC: radius 28↔40 on a spring. Exact animates no border-radius, so it jumps.
+          button press=togglePlay testId="play" aria-label=(playing ? "Pause" : "Play") width=80 height=80
+            border-radius=(playing ? 28 : 40) border-width=0 background-color=trackAt(track).color
+            display="flex" align-items="center" justify-content="center"
+            if playing
+              image "symbol:pause-fill" testId="icon-pause" width=30 height=30 color="#0B0B0F"
+                animation="iconIn 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both"
+            else
+              image "symbol:play-fill" testId="icon-play" width=30 height=30 color="#0B0B0F"
+                animation="iconIn 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both"
+          button press=next testId="next" aria-label="Next track" width=56 height=56 border-width=0 background-color="transparent"
+            svg width=30 height=30 viewBox="0 0 24 24"
+              path d="M16 5h2v14h-2zM4 5v14l10.5-7z" fill="#F4F4F6"
+        column testId="lyrics" flex=1 min-height=132 position="relative" overflow="hidden" border-radius=24
+          background-color="#FFFFFF0A" border-style="solid" border-width=1 border-color="#FFFFFF0F"
+          column padding-left=22 padding-right=22 translate=`0px ${44 - lyricIndex(progress) * 44}px`
+            transition="translate -exact-spring(140, 14, 1)"
+            for l, i in lyrics() key=i
+              text l testId=`lyric-${i}` height=44 line-height="44px" font-size=18 font-weight=600 white-space="nowrap" flex-shrink=0
+                color=(i == lyricIndex(progress) ? "#FFFFFF" : "#C9C9D3")
+                opacity=(dist(i, lyricIndex(progress)) == 0 ? 1 : (dist(i, lyricIndex(progress)) == 1 ? 0.4 : 0.18))
+                scale=(i == lyricIndex(progress) ? 1.04 : 1) transform-origin="0% 50%"
+                transition="opacity 500ms ease, color 500ms ease, scale -exact-spring(180, 10, 1)"
+
+component Orbs
+  props
+    track: number
+    ps: string
+  view
+    box position="absolute" inset=0 overflow="hidden" aria-hidden=true
+      svg position="absolute" left=-120 top=-60 width=320 height=320 viewBox="0 0 320 320" animation=`driftA 11s ease-in-out infinite alternate ${ps}`
+        defs
+          radialGradient id="orbA"
+            stop offset=0 stop-color=trackAt(track).orbA stop-opacity=0.5
+            stop offset=1 stop-color=trackAt(track).orbA stop-opacity=0
+        circle cx=160 cy=160 r=160 fill="url(#orbA)"
+      svg position="absolute" right=-110 top=260 width=280 height=280 viewBox="0 0 280 280" animation=`driftB 13s ease-in-out infinite alternate ${ps}`
+        defs
+          radialGradient id="orbB"
+            stop offset=0 stop-color=trackAt(track).orbB stop-opacity=0.5
+            stop offset=1 stop-color=trackAt(track).orbB stop-opacity=0
+        circle cx=140 cy=140 r=140 fill="url(#orbB)"
+
+component Disc
+  props
+    track: number
+    playing: bool
+    load: number
+  view
+    box testId="disc" width=268 height=268 position="relative" align-self="center" flex-shrink=0
+      box position="absolute" left=-14 top=-14 width=292 height=292 border-radius=148 border-style="solid" border-width=2
+        border-color=trackAt(track).color transition="border-color 800ms"
+        animation=`beat 470ms ease-in-out infinite alternate ${playing ? "running" : "paused"}`
+      box testId="vinyl" position="absolute" inset=0 border-radius=134 overflow="hidden"
+        animation=`spin 5s linear infinite ${playing ? "running" : "paused"}`
+        svg position="absolute" inset=0 width=268 height=268 viewBox="0 0 268 268"
+          circle cx=134 cy=134 r=134 fill="#15151B"
+          for r, i in grooves(load) key=i
+            circle cx=134 cy=134 r=r fill="none" stroke=(i % 2 == 1 ? "#1E1E27" : "#111116") stroke-width=1.5
+          path d="M134 134 L220 31 A134 134 0 0 1 252 71 Z" fill="#FFFFFF0F"
+        box position="absolute" left=82 top=82 width=104 height=104 border-radius=52
+          background-color=trackAt(track).color transition="background-color 800ms"
+          display="flex" align-items="center" justify-content="center"
+          text trackAt(track).mono font-size=24 font-weight=700 color="#0B0B0F"
+          box position="absolute" left=47 top=47 width=10 height=10 border-radius=5 background-color="#0B0B0F"
+      svg testId="tonearm" position="absolute" left=192 top=-26 width=120 height=170 viewBox="0 0 120 170"
+        rotate=(playing ? 22 : 0) transform-origin="96px 22px" transition="rotate -exact-spring(170, 12, 1)"
+        path d="M96 22 L90 120 L62 150" fill="none" stroke="#C9C9D3" stroke-width=5 stroke-linecap="round" stroke-linejoin="round"
+        rect x=48 y=140 width=26 height=18 rx=4 fill="#E9E9EF" transform="rotate(-40 61 149)"
+        circle cx=96 cy=22 r=16 fill="#23232D" stroke="#3A3A47" stroke-width=2
+        circle cx=96 cy=22 r=6 fill="#6E6E7A"
+
+// ---------- 04 · Explore ----------
+
+component Explore
+  props
+    open: number
+    last: number
+    chip: number
+    openCard: action
+    closeCard: action
+    pickChip: action
+  view
+    column testId="explore" flex=1 min-height=0 position="relative" overflow="hidden"
+      column position="absolute" left=24 right=24 top=16 gap=12
+        opacity=(open >= 0 ? 0 : 1) translate=(open >= 0 ? "0px -20px" : "0px 0px")
+        transition="opacity 500ms cubic-bezier(0.22, 1, 0.36, 1), translate 500ms cubic-bezier(0.22, 1, 0.36, 1)"
+        text "HIMALAYA · WINTER 2026" font-size=12 letter-spacing=1 color="#9A9AA6"
+        text "Explore treks" font-size=28 font-weight=700 margin-top=-8
+        input type="search" placeholder="Search treks, passes, regions" aria-label="Search treks" testId="search" height=48
+        row gap=8 overflow-x="auto" scrollbar-width="none"
+          for c, i in ["All", "Himachal", "Uttarakhand", "Winter", "Beginner"] key=c
+            button press=pickChip(i) testId=`chip-${i}` aria-pressed=(i == chip) flex-shrink=0 height=36 padding-left=16 padding-right=16 border-radius=18
+              border-style="solid" border-width=1 border-color=(i == chip ? "#F4F4F6" : "#23232D")
+              background-color=(i == chip ? "#F4F4F6" : "#121218") color=(i == chip ? "#0B0B0F" : "#C9C9D3")
+              text c font-size=13 font-weight=600
+      for k, i in treks() key=k.name
+        TrekCard(k=k, i=i, open=open, last=last, openCard=openCard)
+      if open >= 0
+        Sheet(k=trekAt(open), close=closeCard)
+
+// The frame (position, size) moves on -exact-layout-transition, Exact's
+// shared-element mechanism. Exact moves the card's surface; its laid-out
+// children take their final places at once, so the title, sub-title and
+// mountains travel on their own translate/scale transitions instead.
+component TrekCard
+  props
+    k: Trek
+    i: number
+    open: number
+    last: number
+    openCard: action
+  view
+    column testId=`card-${i}` position="absolute" overflow="hidden"
+      left=(open == i ? "0px" : cardLeft(k.col)) top=(open == i ? "0px" : `${200 + k.dy}px`)
+      width=(open == i ? "100%" : "calc((100% - 60px) / 2)") height=(open == i ? "100%" : `${k.h}px`)
+      border-radius=(open == i ? 0 : 26) z-index=(last == i ? 30 : 1)
+      opacity=(open >= 0 and open != i ? 0 : 1) scale=(open >= 0 and open != i ? 0.88 : 1)
+      transition="opacity 350ms ease, scale 350ms ease"
+      -exact-layout-transition="700ms cubic-bezier(0.2, 0.9, 0.1, 1)"
+      background-image=`linear-gradient(180deg, ${k.sky1}, ${k.sky2})`
+      if k.night
+        box position="absolute" inset=0 aria-hidden=true
+          box position="absolute" left="18%" top="9%" width=3 height=3 border-radius=2 background-color="#FFFFFF" animation="twinkle 1050ms ease-in-out 0ms infinite alternate"
+          box position="absolute" left="42%" top="5%" width=2 height=2 border-radius=1 background-color="#FFFFFF" animation="twinkle 800ms ease-in-out 400ms infinite alternate"
+          box position="absolute" left="70%" top="13%" width=3 height=3 border-radius=2 background-color="#FFFFFF" animation="twinkle 1300ms ease-in-out 900ms infinite alternate"
+          box position="absolute" left="86%" top="6%" width=2 height=2 border-radius=1 background-color="#FFFFFF" animation="twinkle 950ms ease-in-out 200ms infinite alternate"
+          box position="absolute" left="30%" top="18%" width=2 height=2 border-radius=1 background-color="#FFFFFF" animation="twinkle 1150ms ease-in-out 1100ms infinite alternate"
+          box position="absolute" left="58%" top="22%" width=2 height=2 border-radius=1 background-color="#FFFFFF" animation="twinkle 850ms ease-in-out 700ms infinite alternate"
+      box position="absolute" left=(open == i ? "68%" : "60%") top=(open == i ? "15%" : "14%") width=64 height=64 border-radius=32
+        background-color=k.sun box-shadow=`0px 0px 40px 10px ${k.sun}73` aria-hidden=true
+        scale=(open == i ? 1 : 0.469) transform-origin="0% 0%" transition="scale 700ms cubic-bezier(0.2, 0.9, 0.1, 1)"
+      svg position="absolute" left=0 bottom=0 width="100%" height="70%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden=true
+        translate=(open == i ? "0px -150px" : "0px 0px") transition="translate 900ms cubic-bezier(0.2, 0.9, 0.1, 1)"
+        polygon points="0,100 0,55 15,35 28,50 45,18 60,45 72,28 88,48 100,36 100,100" fill=k.m1
+      svg position="absolute" left=0 bottom=0 width="100%" height="50%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden=true
+        translate=(open == i ? "0px -190px" : "0px 0px") transition="translate 900ms cubic-bezier(0.2, 0.9, 0.1, 1) 50ms"
+        polygon points="0,100 0,60 20,38 35,58 55,28 75,55 90,40 100,52 100,100" fill=k.m2
+      svg position="absolute" left=0 bottom=0 width="100%" height="34%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden=true
+        translate=(open == i ? "0px -232px" : "0px 0px") transition="translate 900ms cubic-bezier(0.2, 0.9, 0.1, 1) 100ms"
+        polygon points="0,100 0,48 25,28 50,52 70,34 100,58 100,100" fill=k.m3
+      // Font size does not animate in Exact; the title is drawn at 38 and scaled 18/38 → 1.
+      text k.name testId=`card-title-${i}` position="absolute" left=0 top=0 font-size=38 font-weight=700 line-height="40px" white-space="nowrap"
+        color=(open == i ? k.ink : "#FFFFFF") transform-origin="0% 0%"
+        translate=(open == i ? "24px 84px" : `14px ${k.h - 62}px`) scale=(open == i ? 1 : 0.4737)
+        transition="translate 700ms cubic-bezier(0.2, 0.9, 0.1, 1), scale 700ms cubic-bezier(0.2, 0.9, 0.1, 1), color 500ms ease"
+      text `${k.alt} · ${k.days}` position="absolute" left=0 top=0 font-size=12 font-weight=500 opacity=0.85 white-space="nowrap"
+        color=(open == i ? k.ink : "#FFFFFF")
+        translate=(open == i ? "24px 128px" : `14px ${k.h - 38}px`)
+        transition="translate 700ms cubic-bezier(0.2, 0.9, 0.1, 1), color 500ms ease"
+      if open < 0
+        button press=openCard(i) testId=`open-${i}` aria-label=`Open ${k.name}` position="absolute" inset=0 border-width=0 background-color="transparent"
+
+component Sheet
+  props
+    k: Trek
+    close: action
+  view
+    column testId="sheet" position="absolute" inset=0 z-index=40
+      row position="absolute" top=24 left=24 right=24 justify-content="space-between"
+        button press=close testId="close" aria-label="Close trek details" width=44 height=44 border-radius=22 border-width=0
+          background-color="#0B0B0F8C" backdrop-filter="blur(10px)" display="flex" align-items="center" justify-content="center"
+          animation="popIn 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 450ms both"
+          image "symbol:close" width=20 height=20 color="#FFFFFF"
+        button testId="save" aria-label="Save trek" width=44 height=44 border-radius=22 border-width=0
+          background-color="#0B0B0F8C" backdrop-filter="blur(10px)" display="flex" align-items="center" justify-content="center"
+          animation="popIn 400ms cubic-bezier(0.34, 1.56, 0.64, 1) 550ms both"
+          image "symbol:bookmark" width=20 height=20 color="#FFFFFF"
+      column position="absolute" left=0 right=0 bottom=0 height=452 box-sizing="border-box" gap=16
+        padding-left=24 padding-right=24 padding-top=14 padding-bottom=24
+        background-color="#0B0B0F" border-top-left-radius=32 border-top-right-radius=32
+        animation="sheetUp 750ms cubic-bezier(0.22, 1, 0.36, 1) 180ms both"
+        box align-self="center" width=40 height=4 border-radius=2 background-color="#2A2A36"
+        text k.blurb font-size=14 line-height=1.5 color="#B8B8C4" animation="rise 600ms cubic-bezier(0.22, 1, 0.36, 1) 450ms both"
+        row gap=8
+          for s, j in stats(k) key=s.k
+            column flex=1 min-width=0 gap=4 padding-top=10 padding-bottom=10 padding-left=8 padding-right=8 border-radius=16
+              background-color="#14141B" border-style="solid" border-width=1 border-color="#1F1F29"
+              animation=`rise 600ms cubic-bezier(0.22, 1, 0.36, 1) ${500 + j * 70}ms both`
+              text s.k font-size=10 color="#9A9AA6"
+              text s.v font-size=14 font-weight=700
+        column gap=8 padding=14 border-radius=20 background-color="#14141B" border-style="solid" border-width=1 border-color="#1F1F29"
+          animation="rise 600ms cubic-bezier(0.22, 1, 0.36, 1) 700ms both"
+          row justify-content="space-between"
+            text "Elevation profile" font-size=12 color="#9A9AA6"
+            text `${k.alt} summit` font-size=12 color="#9A9AA6"
+          svg testId="elevation" width="100%" height=84 viewBox="0 0 300 84" preserveAspectRatio="none" role="img" aria-label="Elevation profile of the trek"
+            polygon points=areaPts(k) fill=k.accent fill-opacity=0.12
+            polyline points=linePts(k) fill="none" stroke=k.accent stroke-width=2.5 stroke-linejoin="round" stroke-linecap="round"
+              pathLength=1 stroke-dasharray="1" animation="draw 1600ms cubic-bezier(0.65, 0, 0.35, 1) 850ms both"
+        box flex=1
+        button testId="cta" position="relative" overflow="hidden" height=56 border-radius=18 border-width=0 background-color="#C6F432"
+          display="flex" align-items="center" justify-content="center"
+          animation="rise 600ms cubic-bezier(0.22, 1, 0.36, 1) 850ms both"
+          box position="absolute" top=-10 bottom=-10 left=0 width=60 background-color="#FFFFFF73" rotate=20 aria-hidden=true
+            animation="shimmer 2400ms ease-in-out 1400ms infinite"
+          text "Check batch dates  →" font-size=16 font-weight=700 color="#0B0B0F"
